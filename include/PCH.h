@@ -8,6 +8,8 @@
 #include "REX/REX/Singleton.h"
 #include "SKSE/SKSE.h"
 
+#include <shared_mutex>
+
 #include <xbyak/xbyak.h>
 
 using namespace std::literals;

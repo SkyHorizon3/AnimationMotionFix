@@ -67,8 +67,8 @@ namespace AMF
 				return false;  //Gimbal Lock Occured
 			}
 
-			auto nonPitchTranslationY = a_translation.y / cosf(pitchAngle);
-			auto nonPitchTranslationZ = a_translation.z - nonPitchTranslationY * sinf(pitchAngle);
+			auto nonPitchTranslationY = a_translation.y / std::cos(pitchAngle);
+			auto nonPitchTranslationZ = a_translation.z - nonPitchTranslationY * std::sin(pitchAngle);
 			a_translation.y = nonPitchTranslationY;
 			a_translation.z = nonPitchTranslationZ;
 
@@ -87,6 +87,9 @@ namespace AMF
 
 	bool AttackMagnetismHandler::ShouldDisableMovementMagnetism(RE::Actor* a_actor)
 	{
+		if (!a_actor)
+			return false;
+
 		auto settings = AMFSettings::GetSingleton();
 		bool isDisableInSetting = a_actor->IsPlayerRef() ? settings->disablePlayerMovementMagnetism : settings->disableNpcMovementMagnetism;
 		if (isDisableInSetting) {
@@ -116,12 +119,15 @@ namespace AMF
 
 	bool PushCharacterHandler::ShouldPreventAttackPushing(RE::Actor* a_pusher, RE::Actor* a_target)
 	{
+		if (!a_pusher || !a_target)
+			return false;
+
 		const auto pusherHandle = a_pusher->GetActorRuntimeData().currentCombatTarget;
 		auto combatTarg = pusherHandle ? pusherHandle.get() : nullptr;
 
-		if (a_pusher && AttackMagnetismHandler::ShouldDisableMovementMagnetism(a_pusher) &&
-			a_pusher->IsAttacking() && IsMovementAnimationDriven_1405E3250(a_pusher) && combatTarg) {
-			if (a_target && (a_target == combatTarg.get() || a_target->GetMountedBy(combatTarg))) {
+		if (combatTarg && AttackMagnetismHandler::ShouldDisableMovementMagnetism(a_pusher) && a_pusher->IsAttacking() &&
+			IsMovementAnimationDriven_1405E3250(a_pusher)) {
+			if (a_target == combatTarg.get() || a_target->GetMountedBy(combatTarg)) {
 				return true;
 			}
 		}
@@ -179,23 +185,28 @@ namespace AMF
 	{
 		ProcessConstraintsCallback(a_proxyCtrl, a_proxy, a_manifold, a_input);
 
-		for (int i = 0; i < a_manifold.size(); i++) {
+		for (std::int32_t i = 0; i < a_manifold.size(); i++) {
 			const RE::hkpRootCdPoint& rootPoint = a_manifold[i];
 			const RE::hkpCollidable* rootCollidableB = rootPoint.rootCollidableB;
-			uint8_t charCollisionFilterInfo = rootCollidableB->broadPhaseHandle.collisionFilterInfo & 0x7F;
-			if (charCollisionFilterInfo == 0x1E &&
-				static_cast<RE::hkpWorldObject::BroadPhaseType>(rootCollidableB->broadPhaseHandle.type) == RE::hkpWorldObject::BroadPhaseType::kEntity) {
-				auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
-				auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
-				if (attacker && ShouldPreventAttackPushing(attacker, GetActor(a_proxyCtrl))) {
-					auto attackerCharCtrl = attacker->GetCharController();
-					auto rigidBodyChar = attackerCharCtrl ? skyrim_cast<RE::bhkCharRigidBodyController*>(attackerCharCtrl) : nullptr;
-					if (rigidBodyChar) {
-						a_input.constraints[i].velocity = { 0 };
-						WriteLocker(charCtrlPlaneLock);
 
-						charCtrlPlaneMap.emplace(rigidBodyChar, a_input.constraints[i].plane);
-					}
+			if (!rootCollidableB || rootCollidableB->GetCollisionLayer() != RE::COL_LAYER::kCharController)
+				continue;
+
+			if (static_cast<RE::hkpWorldObject::BroadPhaseType>(rootCollidableB->broadPhaseHandle.type) != RE::hkpWorldObject::BroadPhaseType::kEntity)
+				continue;
+
+			auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
+			auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
+
+			if (ShouldPreventAttackPushing(attacker, GetActor(a_proxyCtrl))) {
+				auto attackerCharCtrl = attacker->GetCharController();
+				auto rigidBodyChar = attackerCharCtrl ? skyrim_cast<RE::bhkCharRigidBodyController*>(attackerCharCtrl) : nullptr;
+
+				if (rigidBodyChar) {
+					a_input.constraints[i].velocity = { 0 };
+					WriteLocker(charCtrlPlaneLock);
+
+					charCtrlPlaneMap.emplace(rigidBodyChar, a_input.constraints[i].plane);
 				}
 			}
 		}
@@ -206,22 +217,23 @@ namespace AMF
 		UpdateForAnimationAttack(a_charCtrl);
 
 		auto rigidCharCtrl = a_charCtrl ? skyrim_cast<RE::bhkCharRigidBodyController*>(a_charCtrl) : nullptr;
-		if (rigidCharCtrl) {
-			WriteLocker(charCtrlPlaneLock);
-			auto it = charCtrlPlaneMap.find(rigidCharCtrl);
-			if (it != charCtrlPlaneMap.end()) {
-				auto normal = it->second;
-				RE::hkVector4 currentVelocity;
-				rigidCharCtrl->GetLinearVelocityImpl(currentVelocity);
-				auto velDotNormal = currentVelocity.Dot3(normal);
-				if (velDotNormal > 0.f) {
-					auto counterVel = normal * (-velDotNormal);
-					currentVelocity = currentVelocity + counterVel;
-					rigidCharCtrl->SetLinearVelocityImpl(currentVelocity);
-				}
+		if (!rigidCharCtrl)
+			return;
 
-				charCtrlPlaneMap.erase(it);
+		WriteLocker(charCtrlPlaneLock);
+		auto it = charCtrlPlaneMap.find(rigidCharCtrl);
+		if (it != charCtrlPlaneMap.end()) {
+			auto normal = it->second;
+			RE::hkVector4 currentVelocity;
+			rigidCharCtrl->GetLinearVelocityImpl(currentVelocity);
+			auto velDotNormal = currentVelocity.Dot3(normal);
+			if (velDotNormal > 0.f) {
+				auto counterVel = normal * (-velDotNormal);
+				currentVelocity = currentVelocity + counterVel;
+				rigidCharCtrl->SetLinearVelocityImpl(currentVelocity);
 			}
+
+			charCtrlPlaneMap.erase(it);
 		}
 	}
 
@@ -253,15 +265,15 @@ namespace AMF
 	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::AMFContactListener::ContactPointCallback(const RE::hkpContactPointEvent& a_event)
 	{
 		auto attacker = GetActor(a_event.bodies[0]);
-		if (attacker) {
-			auto target = GetActor(a_event.bodies[1]);
-			if (target && ShouldPreventAttackPushing(attacker, target) && a_event.contactMgr && a_event.bodies[0]->simulationIsland && a_event.bodies[1]->simulationIsland) {
-				a_event.bodies[1]->responseModifierFlags = 1;  //MASS_SCALING = 1
-				SetInvMassScalingForContact_Impl(a_event, a_event.bodies[1], { 0 });
-				if (ShouldPreventAttackPushing(target, attacker)) {
-					a_event.bodies[0]->responseModifierFlags = 1;  //MASS_SCALING = 1
-					SetInvMassScalingForContact_Impl(a_event, a_event.bodies[0], { 0 });
-				}
+		auto target = GetActor(a_event.bodies[1]);
+
+		if (ShouldPreventAttackPushing(attacker, target) && a_event.contactMgr && a_event.bodies[0]->simulationIsland && a_event.bodies[1]->simulationIsland) {
+			a_event.bodies[1]->responseModifierFlags = 1;  //MASS_SCALING = 1
+			SetInvMassScalingForContact_Impl(a_event, a_event.bodies[1], { 0 });
+
+			if (ShouldPreventAttackPushing(target, attacker)) {
+				a_event.bodies[0]->responseModifierFlags = 1;  //MASS_SCALING = 1
+				SetInvMassScalingForContact_Impl(a_event, a_event.bodies[0], { 0 });
 			}
 		}
 	}

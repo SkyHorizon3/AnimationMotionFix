@@ -47,19 +47,13 @@ namespace AMF
 		}
 	}
 
-	inline bool IsAllowRotation(RE::Actor* a_actor)
-	{
-		bool result = false;
-		return a_actor->GetGraphVariableBool("bAllowRotation", result) && result;
-	}
-
 	bool FixPitchTransHandler::RevertPitchRotation(RE::Actor* a_actor, RE::NiPoint3& a_translation)
 	{
 		if (!a_actor)
 			return false;
 
 		const auto actorState = a_actor->AsActorState();
-		if (actorState->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal || actorState->IsFlying())
+		if (!actorState || actorState->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal || actorState->IsFlying())
 			return false;
 
 		bool bIsSynced = false;
@@ -67,7 +61,7 @@ namespace AMF
 			return false;
 		}
 
-		if (IsMovementAnimationDriven_1405E3250(a_actor) && (a_actor->IsAnimationDriven() || IsAllowRotation(a_actor))) {
+		if (IsMovementAnimationDriven_1405E3250(a_actor) && (a_actor->IsAnimationDriven() || a_actor->IsRotationAllowed())) {
 			auto pitchAngle = a_actor->data.angle.x;
 			if (std::abs(pitchAngle) > 1.57079638f) {
 				return false;  //Gimbal Lock Occured
@@ -84,11 +78,11 @@ namespace AMF
 		return false;
 	}
 
-	void FixPitchTransHandler::Hook_ConvertMoveDirToTranslation(RE::NiPoint3& a_movementDirection, RE::NiPoint3& a_translationData, RE::Actor* a_actor)
+	void FixPitchTransHandler::Hook_ConvertMoveDirToTranslation(const RE::NiPoint3& a_angle, RE::NiPoint3& a_outDirection, RE::Actor* a_actor)
 	{
-		ConvertMoveDirToTranslation(a_movementDirection, a_translationData);
-		if (!a_actor->IsPlayerRef() && AMFSettings::GetSingleton()->enablePitchTranslationFix)
-			RevertPitchRotation(a_actor, a_translationData);
+		ConvertMoveDirToTranslation(a_angle, a_outDirection);  // TODO: test
+		if (a_actor && !a_actor->IsPlayerRef() && AMFSettings::GetSingleton()->enablePitchTranslationFix)
+			RevertPitchRotation(a_actor, a_outDirection);
 	}
 
 	bool AttackMagnetismHandler::ShouldDisableMovementMagnetism(RE::Actor* a_actor)
@@ -122,9 +116,11 @@ namespace AMF
 
 	bool PushCharacterHandler::ShouldPreventAttackPushing(RE::Actor* a_pusher, RE::Actor* a_target)
 	{
+		const auto pusherHandle = a_pusher->GetActorRuntimeData().currentCombatTarget;
+		auto combatTarg = pusherHandle ? pusherHandle.get() : nullptr;
+
 		if (a_pusher && AttackMagnetismHandler::ShouldDisableMovementMagnetism(a_pusher) &&
-			a_pusher->IsAttacking() && IsMovementAnimationDriven_1405E3250(a_pusher) && a_pusher->GetActorRuntimeData().currentCombatTarget) {
-			auto combatTarg = a_pusher->GetActorRuntimeData().currentCombatTarget.get();
+			a_pusher->IsAttacking() && IsMovementAnimationDriven_1405E3250(a_pusher) && combatTarg) {
 			if (a_target && (a_target == combatTarg.get() || a_target->GetMountedBy(combatTarg))) {
 				return true;
 			}
@@ -147,7 +143,7 @@ namespace AMF
 
 	RE::Actor* PushCharacterHandler::GetActor(RE::bhkCharacterController* a_charCtrl)
 	{
-		return a_charCtrl ? GetActor(a_charCtrl->GetBodyImpl()) : nullptr;
+		return a_charCtrl ? GetActor(a_charCtrl->GetRigidBody()) : nullptr;
 	}
 
 	RE::Actor* PushCharacterHandler::GetActor(RE::hkpWorldObject* a_rigidBody)
@@ -155,8 +151,8 @@ namespace AMF
 		if (!a_rigidBody)
 			return nullptr;
 
-		uint8_t charCollisionFilterInfo = a_rigidBody->collidable.broadPhaseHandle.collisionFilterInfo & 0x7F;
-		if (charCollisionFilterInfo != 0x1E)
+		const auto charCollisionFilterInfo = a_rigidBody->collidable.GetCollisionLayer();
+		if (charCollisionFilterInfo != RE::COL_LAYER::kCharController)
 			return nullptr;
 
 		auto objRef = a_rigidBody ? a_rigidBody->GetUserData() : nullptr;

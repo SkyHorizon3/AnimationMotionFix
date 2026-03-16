@@ -1,22 +1,21 @@
 #include "Settings.h"
+#include <SimpleIni.h>
 
 namespace AMF
 {
-	static auto MainConfig = COMPILE_PROXY("AnimationMotionFix.ini"sv);
-
-	AMFSettings::AMFSettings()
+	void AMFSettings::LoadSettings()
 	{
-		MainConfig.Bind(enablePitchTranslationFix, true);
+		const auto path = std::format("Data/SKSE/Plugins/{}.ini", Plugin::NAME);
 
-		MainConfig.Bind(disablePlayerRotationMagnetism, true);
-		MainConfig.Bind(disablePlayerMovementMagnetism, true);
-		MainConfig.Bind(disableNpcMovementMagnetism, true);
+		CSimpleIniA ini;
+		ini.SetUnicode();
+		ini.LoadFile(path.c_str());
 
-		MainConfig.Load();
+		enablePitchTranslationFix = ini.GetBoolValue("Fix", "EnablePitchTranslationFix");
 
-		PrintSettingValue(enablePitchTranslationFix);
-		PrintSettingValue(disablePlayerRotationMagnetism);
-		PrintSettingValue(disablePlayerMovementMagnetism);
-		PrintSettingValue(disableNpcMovementMagnetism);
+		constexpr const char* section = "Tweak";
+		disablePlayerRotationMagnetism = ini.GetBoolValue(section, "DisablePlayerRotationMagnetism");
+		disablePlayerMovementMagnetism = ini.GetBoolValue(section, "DisablePlayerMovementMagnetism");
+		disableNpcMovementMagnetism = ini.GetBoolValue(section, "DisableNpcMovementMagnetism");
 	}
 }

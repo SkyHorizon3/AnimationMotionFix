@@ -1,21 +1,10 @@
 {
-    "name": "animationmotionfix",
-    "version-string": "1.1.4",
-    "description": "",
-    "license": "MIT",
-    "dependencies": [
-        "spdlog",
-        "xbyak",
-        "directxtk",
-        "catch2",
-        "rapidcsv",
-        "nlohmann-json",
-        "simpleini"
-    ],
-    "builtin-baseline": "74ec888e385d189b42d6b398d0bbaa6f1b1d3b0e",
-    "features": {
-        "mo2-install": {
-            "description": "AnimationMotionFix"
-        }
-    }
+  "name": "animationmotionfix",
+  "version-string": "1.1.6",
+  "description": "Animation Motion Fix",
+  "dependencies": [
+    "commonlibsse-ng",
+    "simpleini"
+  ],
+  "builtin-baseline": "14bb451131ccf6be50a63a8d9dfe7980e46b5958"
 }

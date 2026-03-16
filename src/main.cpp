@@ -1,11 +1,13 @@
 ﻿#include "Hooks.h"
 #include "Settings.h"
 
+#define DLLEXPORT __declspec(dllexport)
+
 extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() {
 	SKSE::PluginVersionData v;
 	v.PluginName(Plugin::NAME);
-	v.PluginVersion(Plugin::VERSION);
 	v.AuthorName("Maxsu and SkyHorizon"sv);
+	v.PluginVersion(Plugin::VERSION);
 	v.UsesAddressLibrary();
 	v.UsesNoStructs();
 	return v;
@@ -19,23 +21,23 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface*, 
 	return true;
 }
 
-SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
+SKSEPluginLoad(const SKSE::LoadInterface* skse)
 {
-#ifndef NDEBUG
+	/*#ifndef NDEBUG
 	while (!IsDebuggerPresent()) {
 		Sleep(100);
 	}
-#endif
+#endif*/
 
-	DKUtil::Logger::Init(Plugin::NAME, REL::Module::get().version().string());
+	SKSE::Init(skse, true);
 
-	REL::Module::reset();
-	SKSE::Init(a_skse, false);
+	spdlog::set_pattern("[%H:%M:%S:%e] [%l] %v"s);
+	spdlog::set_level(spdlog::level::info);
+	spdlog::flush_on(spdlog::level::info);
 
-	INFO("{} v{} loaded", Plugin::NAME, Plugin::VERSION);
+	SKSE::log::info("Game version: {}", skse->RuntimeVersion());
 
-	// do stuff
-	AMF::AMFSettings::GetSingleton();
+	AMF::AMFSettings::GetSingleton()->LoadSettings();
 
 	SKSE::AllocTrampoline(145);
 

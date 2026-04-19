@@ -27,21 +27,22 @@ namespace AMF
 	inline void SetInvMassScalingForContact_Impl(const RE::hkpContactPointEvent& a_event, RE::hkpRigidBody* a_rigidBody, const RE::hkVector4& a_factor)
 	{
 		auto island = a_event.bodies[0]->simulationIsland;
-		if (!island->world) {
+		if (island->storageIndex == 0xFFFF) {  // hkpSimulationIsland::isFixed
 			island = a_event.bodies[1]->simulationIsland;
 		}
 
 		if (a_event.type == RE::hkpContactPointEvent::Type::kManifold) {
-			auto old_multiThreadChecker = island->multiThreadCheck;
-			auto old_timeSinceLastHighFrequencyCheck = island->timeSinceLastHighFrequencyCheck;
-			auto old_timeSinceLastLowFrequencyCheck = island->timeSinceLastLowFrequencyCheck;
-			island->multiThreadCheck.markCount |= 0x8000u;  //hkMultiThreadCheck::disableChecks
+			auto old_stackTrace = island->multiThreadCheck.stackTraceId;
+			auto old_markCount = island->multiThreadCheck.markCount;
+			auto old_threadID = island->multiThreadCheck.threadId;
 
+			island->multiThreadCheck.markCount |= 0x8000;  //hkMultiThreadCheck::disableChecks
 			SetInvMassScalingForContact_140AA8740(a_event.contactMgr, a_rigidBody, *island, a_factor);
 
-			island->multiThreadCheck = old_multiThreadChecker;
-			island->timeSinceLastHighFrequencyCheck = old_timeSinceLastHighFrequencyCheck;
-			island->timeSinceLastLowFrequencyCheck = old_timeSinceLastLowFrequencyCheck;
+			island->multiThreadCheck.stackTraceId = old_stackTrace;
+			island->multiThreadCheck.markCount = old_markCount;
+			island->multiThreadCheck.threadId = old_threadID;
+
 		} else {
 			SetInvMassScalingForContact_140AA8740(a_event.contactMgr, a_rigidBody, *island, a_factor);
 		}
@@ -260,22 +261,26 @@ namespace AMF
 	{
 		_AddContactListener(a_world, AMFContactListener::GetSingleton());
 		_AddContactListener(a_world, a_listener);
+
+		SKSE::log::info("{} Done!", __FUNCTION__);
 	}
 
 	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::AMFContactListener::ContactPointCallback(const RE::hkpContactPointEvent& a_event)
 	{
-		auto attacker = GetActor(a_event.bodies[0]);
-		auto target = GetActor(a_event.bodies[1]);
+		auto rigidBodyA = a_event.bodies[0];
+		auto rigidBodyB = a_event.bodies[1];
 
-		if (ShouldPreventAttackPushing(attacker, target) && a_event.contactMgr && a_event.bodies[0]->simulationIsland && a_event.bodies[1]->simulationIsland) {
-			a_event.bodies[1]->responseModifierFlags = 1;  //MASS_SCALING = 1
-			SetInvMassScalingForContact_Impl(a_event, a_event.bodies[1], { 0 });
+		auto attacker = GetActor(rigidBodyA);
+		auto target = GetActor(rigidBodyB);
+
+		if (ShouldPreventAttackPushing(attacker, target) && a_event.contactMgr && rigidBodyA->simulationIsland && rigidBodyB->simulationIsland) {
+			rigidBodyB->responseModifierFlags |= 1;  //MASS_SCALING = 1
+			SetInvMassScalingForContact_Impl(a_event, rigidBodyB, { 0 });
 
 			if (ShouldPreventAttackPushing(target, attacker)) {
-				a_event.bodies[0]->responseModifierFlags = 1;  //MASS_SCALING = 1
-				SetInvMassScalingForContact_Impl(a_event, a_event.bodies[0], { 0 });
+				rigidBodyA->responseModifierFlags |= 1;
+				SetInvMassScalingForContact_Impl(a_event, rigidBodyA, { 0 });
 			}
 		}
 	}
-
 }

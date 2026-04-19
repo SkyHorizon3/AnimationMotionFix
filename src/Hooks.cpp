@@ -24,6 +24,7 @@ namespace AMF
 		return func(a_mgr, a_body, a_constraintOwner, a_factor);
 	}
 
+	// implementation of hkpAddModifierUtil::setInvMassScalingForContact not included in Skyrim exe file
 	inline void SetInvMassScalingForContact_Impl(const RE::hkpContactPointEvent& a_event, RE::hkpRigidBody* a_rigidBody, const RE::hkVector4& a_factor)
 	{
 		auto island = a_event.bodies[0]->simulationIsland;
@@ -42,7 +43,6 @@ namespace AMF
 			island->multiThreadCheck.stackTraceId = old_stackTrace;
 			island->multiThreadCheck.markCount = old_markCount;
 			island->multiThreadCheck.threadId = old_threadID;
-
 		} else {
 			SetInvMassScalingForContact_140AA8740(a_event.contactMgr, a_rigidBody, *island, a_factor);
 		}
@@ -81,9 +81,10 @@ namespace AMF
 
 	void FixPitchTransHandler::Hook_ConvertMoveDirToTranslation(const RE::NiPoint3& a_angle, RE::NiPoint3& a_outDirection, RE::Actor* a_actor)
 	{
-		ConvertMoveDirToTranslation(a_angle, a_outDirection);  // TODO: test
-		if (a_actor && !a_actor->IsPlayerRef() && AMFSettings::GetSingleton()->enablePitchTranslationFix)
+		ConvertMoveDirToTranslation(a_angle, a_outDirection);
+		if (a_actor && !a_actor->IsPlayerRef() && AMFSettings::GetSingleton()->enablePitchTranslationFix) {
 			RevertPitchRotation(a_actor, a_outDirection);
+		}
 	}
 
 	bool AttackMagnetismHandler::ShouldDisableMovementMagnetism(RE::Actor* a_actor)
@@ -196,8 +197,8 @@ namespace AMF
 			if (static_cast<RE::hkpWorldObject::BroadPhaseType>(rootCollidableB->broadPhaseHandle.type) != RE::hkpWorldObject::BroadPhaseType::kEntity)
 				continue;
 
-			auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
-			auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
+			const auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
+			const auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
 
 			if (ShouldPreventAttackPushing(attacker, GetActor(a_proxyCtrl))) {
 				auto attackerCharCtrl = attacker->GetCharController();
@@ -205,9 +206,11 @@ namespace AMF
 
 				if (rigidBodyChar) {
 					a_input.constraints[i].velocity = { 0 };
-					WriteLocker(charCtrlPlaneLock);
 
-					charCtrlPlaneMap.emplace(rigidBodyChar, a_input.constraints[i].plane);
+					{
+						WriteLocker lock(charCtrlPlaneLock);
+						charCtrlPlaneMap.emplace(rigidBodyChar, a_input.constraints[i].plane);
+					}
 				}
 			}
 		}
@@ -221,29 +224,34 @@ namespace AMF
 		if (!rigidCharCtrl)
 			return;
 
-		WriteLocker(charCtrlPlaneLock);
-		auto it = charCtrlPlaneMap.find(rigidCharCtrl);
-		if (it != charCtrlPlaneMap.end()) {
-			auto normal = it->second;
-			RE::hkVector4 currentVelocity;
-			rigidCharCtrl->GetLinearVelocityImpl(currentVelocity);
-			auto velDotNormal = currentVelocity.Dot3(normal);
-			if (velDotNormal > 0.f) {
-				auto counterVel = normal * (-velDotNormal);
-				currentVelocity = currentVelocity + counterVel;
-				rigidCharCtrl->SetLinearVelocityImpl(currentVelocity);
-			}
+		{
+			WriteLocker lock(charCtrlPlaneLock);
+			auto it = charCtrlPlaneMap.find(rigidCharCtrl);
+			if (it != charCtrlPlaneMap.end()) {
+				const auto& normal = it->second;
+				RE::hkVector4 currentVelocity;
+				rigidCharCtrl->GetLinearVelocityImpl(currentVelocity);
 
-			charCtrlPlaneMap.erase(it);
+				const auto velDotNormal = currentVelocity.Dot3(normal);
+				if (velDotNormal > 0.0f) {
+					const auto counterVel = normal * (-velDotNormal);
+					currentVelocity = currentVelocity + counterVel;
+					rigidCharCtrl->SetLinearVelocityImpl(currentVelocity);
+				}
+
+				charCtrlPlaneMap.erase(it);
+			}
 		}
 	}
 
 	void PushCharacterHandler::RigidBodyPushProxyHandler::Hook_DeleteThis(RE::bhkCharRigidBodyController* a_charCtrl)
 	{
-		WriteLocker(charCtrlPlaneLock);
-		auto it = charCtrlPlaneMap.find(a_charCtrl);
-		if (it != charCtrlPlaneMap.end()) {
-			charCtrlPlaneMap.erase(it);
+		{
+			WriteLocker lock(charCtrlPlaneLock);
+			auto it = charCtrlPlaneMap.find(a_charCtrl);
+			if (it != charCtrlPlaneMap.end()) {
+				charCtrlPlaneMap.erase(it);
+			}
 		}
 
 		DeleteThis(a_charCtrl);
@@ -261,8 +269,6 @@ namespace AMF
 	{
 		_AddContactListener(a_world, AMFContactListener::GetSingleton());
 		_AddContactListener(a_world, a_listener);
-
-		SKSE::log::info("{} Done!", __FUNCTION__);
 	}
 
 	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::AMFContactListener::ContactPointCallback(const RE::hkpContactPointEvent& a_event)

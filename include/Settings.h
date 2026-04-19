@@ -10,6 +10,6 @@ namespace AMF
 		bool enablePitchTranslationFix{ true };
 		bool disablePlayerRotationMagnetism{ true };
 		bool disablePlayerMovementMagnetism{ true };
-		bool disableNpcMovementMagnetism{ true };  // crash with this = true for some people
+		bool disableNpcMovementMagnetism{ true };
 	};
 }

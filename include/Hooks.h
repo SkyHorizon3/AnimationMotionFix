@@ -9,7 +9,7 @@ namespace AMF
 
 		struct Hook : Xbyak::CodeGenerator
 		{
-			Hook(std::uintptr_t func)
+			Hook(std::uintptr_t func, std::uintptr_t ret)
 			{
 				Xbyak::Label hookLabel;
 				Xbyak::Label retnLabel;
@@ -23,7 +23,7 @@ namespace AMF
 				dq(func);
 
 				L(retnLabel);
-				dq(func + 5);
+				dq(ret);
 			}
 		};
 
@@ -31,7 +31,7 @@ namespace AMF
 		static void InstallHook()
 		{
 			REL::Relocation<std::uintptr_t> target{ REL::VariantID(36365, 37356, 0x5E0E20), REL::Relocate(0x365, 0x3FE, 0x3B5) };  //1.5.97 1405D87F0 - 1.6.640 14060FAE0
-			auto call = Hook(stl::unrestricted_cast<std::uintptr_t>(Hook_ConvertMoveDirToTranslation));
+			auto call = Hook(stl::unrestricted_cast<std::uintptr_t>(Hook_ConvertMoveDirToTranslation), target.address() + 5);
 
 			auto& trampoline = SKSE::GetTrampoline();
 			ConvertMoveDirToTranslation = trampoline.write_branch<5>(target.address(), trampoline.allocate(call));
@@ -187,10 +187,6 @@ namespace AMF
 			{
 			public:
 				void ContactPointCallback(const RE::hkpContactPointEvent& a_event) override;
-
-			private:
-				AMFContactListener() = default;
-				~AMFContactListener() = default;
 			};
 
 			static void InstallHook()

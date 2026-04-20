@@ -33,9 +33,9 @@ namespace AMF
 		}
 
 		if (a_event.type == RE::hkpContactPointEvent::Type::kManifold) {
-			auto old_stackTrace = island->multiThreadCheck.stackTraceId;
-			auto old_markCount = island->multiThreadCheck.markCount;
-			auto old_threadID = island->multiThreadCheck.threadId;
+			const auto old_stackTrace = island->multiThreadCheck.stackTraceId;
+			const auto old_markCount = island->multiThreadCheck.markCount;
+			const auto old_threadID = island->multiThreadCheck.threadId;
 
 			island->multiThreadCheck.markCount |= 0x8000;  //hkMultiThreadCheck::disableChecks
 			SetInvMassScalingForContact_140AA8740(a_event.contactMgr, a_rigidBody, *island, a_factor);
@@ -273,13 +273,17 @@ namespace AMF
 
 	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::AMFContactListener::ContactPointCallback(const RE::hkpContactPointEvent& a_event)
 	{
+		if (a_event.contactPointProperties->flags.any(RE::hkContactPointMaterial::Flag::kIsDisabled) || !a_event.contactMgr) {
+			return;
+		}
+
 		auto rigidBodyA = a_event.bodies[0];
 		auto rigidBodyB = a_event.bodies[1];
 
 		auto attacker = GetActor(rigidBodyA);
 		auto target = GetActor(rigidBodyB);
 
-		if (ShouldPreventAttackPushing(attacker, target) && a_event.contactMgr && rigidBodyA->simulationIsland && rigidBodyB->simulationIsland) {
+		if (ShouldPreventAttackPushing(attacker, target) && rigidBodyA->simulationIsland && rigidBodyB->simulationIsland) {
 			rigidBodyB->responseModifierFlags |= 1;  //MASS_SCALING = 1
 			SetInvMassScalingForContact_Impl(a_event, rigidBodyB, { 0 });
 

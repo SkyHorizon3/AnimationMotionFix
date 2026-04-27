@@ -21,7 +21,7 @@ namespace AMF
 	{
 		using func_t = decltype(&SetInvMassScalingForContact_140AA8740);
 		static REL::Relocation<func_t> func{ REL::VariantID(61388, 62282, 0xAE3140) };
-		return func(a_mgr, a_body, a_constraintOwner, a_factor);
+		func(a_mgr, a_body, a_constraintOwner, a_factor);
 	}
 
 	// implementation of hkpAddModifierUtil::setInvMassScalingForContact not included in Skyrim exe file
@@ -33,16 +33,16 @@ namespace AMF
 		}
 
 		if (a_event.type == RE::hkpContactPointEvent::Type::kManifold) {
-			const auto old_stackTrace = island->multiThreadCheck.stackTraceId;
-			const auto old_markCount = island->multiThreadCheck.markCount;
 			const auto old_threadID = island->multiThreadCheck.threadId;
+			const auto old_markCount = island->multiThreadCheck.markCount;
+			const auto old_stackTrace = island->multiThreadCheck.stackTraceId;
 
 			island->multiThreadCheck.markCount |= 0x8000;  //hkMultiThreadCheck::disableChecks
 			SetInvMassScalingForContact_140AA8740(a_event.contactMgr, a_rigidBody, *island, a_factor);
 
+			island->multiThreadCheck.threadId = old_threadID;
 			island->multiThreadCheck.stackTraceId = old_stackTrace;
 			island->multiThreadCheck.markCount = old_markCount;
-			island->multiThreadCheck.threadId = old_threadID;
 		} else {
 			SetInvMassScalingForContact_140AA8740(a_event.contactMgr, a_rigidBody, *island, a_factor);
 		}
@@ -273,7 +273,8 @@ namespace AMF
 
 	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::AMFContactListener::ContactPointCallback(const RE::hkpContactPointEvent& a_event)
 	{
-		if (a_event.contactPointProperties->flags.any(RE::hkContactPointMaterial::Flag::kIsDisabled) || !a_event.contactMgr) {
+		const auto prop = a_event.contactPointProperties;
+		if (!prop || prop->flags.any(RE::hkContactPointMaterial::Flag::kIsDisabled) || !a_event.contactMgr) {
 			return;
 		}
 

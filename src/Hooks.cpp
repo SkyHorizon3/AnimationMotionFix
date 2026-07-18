@@ -21,36 +21,31 @@ namespace AMF
 	{
 		using func_t = decltype(&SetInvMassScalingForContact_140AA8740);
 		static REL::Relocation<func_t> func{ REL::VariantID(61388, 62282, 0xAE3140) };
-		return func(a_mgr, a_body, a_constraintOwner, a_factor);
+		func(a_mgr, a_body, a_constraintOwner, a_factor);
 	}
 
+	// implementation of hkpAddModifierUtil::setInvMassScalingForContact not included in Skyrim exe file
 	inline void SetInvMassScalingForContact_Impl(const RE::hkpContactPointEvent& a_event, RE::hkpRigidBody* a_rigidBody, const RE::hkVector4& a_factor)
 	{
 		auto island = a_event.bodies[0]->simulationIsland;
-		if (!island->world) {
+		if (island->storageIndex == 0xFFFF) {  // hkpSimulationIsland::isFixed
 			island = a_event.bodies[1]->simulationIsland;
 		}
 
 		if (a_event.type == RE::hkpContactPointEvent::Type::kManifold) {
-			auto old_multiThreadChecker = island->multiThreadCheck;
-			auto old_timeSinceLastHighFrequencyCheck = island->timeSinceLastHighFrequencyCheck;
-			auto old_timeSinceLastLowFrequencyCheck = island->timeSinceLastLowFrequencyCheck;
-			island->multiThreadCheck.markCount |= 0x8000u;  //hkMultiThreadCheck::disableChecks
+			const auto old_threadID = island->multiThreadCheck.threadId;
+			const auto old_markCount = island->multiThreadCheck.markCount;
+			const auto old_stackTrace = island->multiThreadCheck.stackTraceId;
 
+			island->multiThreadCheck.markCount |= 0x8000;  //hkMultiThreadCheck::disableChecks
 			SetInvMassScalingForContact_140AA8740(a_event.contactMgr, a_rigidBody, *island, a_factor);
 
-			island->multiThreadCheck = old_multiThreadChecker;
-			island->timeSinceLastHighFrequencyCheck = old_timeSinceLastHighFrequencyCheck;
-			island->timeSinceLastLowFrequencyCheck = old_timeSinceLastLowFrequencyCheck;
+			island->multiThreadCheck.threadId = old_threadID;
+			island->multiThreadCheck.stackTraceId = old_stackTrace;
+			island->multiThreadCheck.markCount = old_markCount;
 		} else {
 			SetInvMassScalingForContact_140AA8740(a_event.contactMgr, a_rigidBody, *island, a_factor);
 		}
-	}
-
-	inline bool IsAllowRotation(RE::Actor* a_actor)
-	{
-		bool result = false;
-		return a_actor->GetGraphVariableBool("bAllowRotation", result) && result;
 	}
 
 	bool FixPitchTransHandler::RevertPitchRotation(RE::Actor* a_actor, RE::NiPoint3& a_translation)
@@ -59,7 +54,7 @@ namespace AMF
 			return false;
 
 		const auto actorState = a_actor->AsActorState();
-		if (actorState->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal || actorState->IsFlying())
+		if (!actorState || actorState->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal || actorState->IsFlying())
 			return false;
 
 		bool bIsSynced = false;
@@ -67,14 +62,14 @@ namespace AMF
 			return false;
 		}
 
-		if (IsMovementAnimationDriven_1405E3250(a_actor) && (a_actor->IsAnimationDriven() || IsAllowRotation(a_actor))) {
+		if (IsMovementAnimationDriven_1405E3250(a_actor) && (a_actor->IsAnimationDriven() || a_actor->IsRotationAllowed())) {
 			auto pitchAngle = a_actor->data.angle.x;
 			if (std::abs(pitchAngle) > 1.57079638f) {
 				return false;  //Gimbal Lock Occured
 			}
 
-			auto nonPitchTranslationY = a_translation.y / cosf(pitchAngle);
-			auto nonPitchTranslationZ = a_translation.z - nonPitchTranslationY * sinf(pitchAngle);
+			auto nonPitchTranslationY = a_translation.y / std::cos(pitchAngle);
+			auto nonPitchTranslationZ = a_translation.z - nonPitchTranslationY * std::sin(pitchAngle);
 			a_translation.y = nonPitchTranslationY;
 			a_translation.z = nonPitchTranslationZ;
 
@@ -84,15 +79,19 @@ namespace AMF
 		return false;
 	}
 
-	void FixPitchTransHandler::Hook_ConvertMoveDirToTranslation(RE::NiPoint3& a_movementDirection, RE::NiPoint3& a_translationData, RE::Actor* a_actor)
+	void FixPitchTransHandler::Hook_ConvertMoveDirToTranslation(const RE::NiPoint3& a_angle, RE::NiPoint3& a_outDirection, RE::Actor* a_actor)
 	{
-		ConvertMoveDirToTranslation(a_movementDirection, a_translationData);
-		if (!a_actor->IsPlayerRef() && AMFSettings::GetSingleton()->enablePitchTranslationFix)
-			RevertPitchRotation(a_actor, a_translationData);
+		ConvertMoveDirToTranslation(a_angle, a_outDirection);
+		if (a_actor && !a_actor->IsPlayerRef() && AMFSettings::GetSingleton()->enablePitchTranslationFix) {
+			RevertPitchRotation(a_actor, a_outDirection);
+		}
 	}
 
 	bool AttackMagnetismHandler::ShouldDisableMovementMagnetism(RE::Actor* a_actor)
 	{
+		if (!a_actor)
+			return false;
+
 		auto settings = AMFSettings::GetSingleton();
 		bool isDisableInSetting = a_actor->IsPlayerRef() ? settings->disablePlayerMovementMagnetism : settings->disableNpcMovementMagnetism;
 		if (isDisableInSetting) {
@@ -122,10 +121,15 @@ namespace AMF
 
 	bool PushCharacterHandler::ShouldPreventAttackPushing(RE::Actor* a_pusher, RE::Actor* a_target)
 	{
-		if (a_pusher && AttackMagnetismHandler::ShouldDisableMovementMagnetism(a_pusher) &&
-			a_pusher->IsAttacking() && IsMovementAnimationDriven_1405E3250(a_pusher) && a_pusher->GetActorRuntimeData().currentCombatTarget) {
-			auto combatTarg = a_pusher->GetActorRuntimeData().currentCombatTarget.get();
-			if (a_target && (a_target == combatTarg.get() || a_target->GetMountedBy(combatTarg))) {
+		if (!a_pusher || !a_target)
+			return false;
+
+		const auto pusherHandle = a_pusher->GetActorRuntimeData().currentCombatTarget;
+		auto combatTarg = pusherHandle ? pusherHandle.get() : nullptr;
+
+		if (combatTarg && AttackMagnetismHandler::ShouldDisableMovementMagnetism(a_pusher) && a_pusher->IsAttacking() &&
+			IsMovementAnimationDriven_1405E3250(a_pusher)) {
+			if (a_target == combatTarg.get() || a_target->GetMountedBy(combatTarg)) {
 				return true;
 			}
 		}
@@ -147,7 +151,7 @@ namespace AMF
 
 	RE::Actor* PushCharacterHandler::GetActor(RE::bhkCharacterController* a_charCtrl)
 	{
-		return a_charCtrl ? GetActor(a_charCtrl->GetBodyImpl()) : nullptr;
+		return a_charCtrl ? GetActor(a_charCtrl->GetRigidBody()) : nullptr;
 	}
 
 	RE::Actor* PushCharacterHandler::GetActor(RE::hkpWorldObject* a_rigidBody)
@@ -155,8 +159,8 @@ namespace AMF
 		if (!a_rigidBody)
 			return nullptr;
 
-		uint8_t charCollisionFilterInfo = a_rigidBody->collidable.broadPhaseHandle.collisionFilterInfo & 0x7F;
-		if (charCollisionFilterInfo != 0x1E)
+		const auto charCollisionFilterInfo = a_rigidBody->collidable.GetCollisionLayer();
+		if (charCollisionFilterInfo != RE::COL_LAYER::kCharController)
 			return nullptr;
 
 		auto objRef = a_rigidBody ? a_rigidBody->GetUserData() : nullptr;
@@ -183,21 +187,28 @@ namespace AMF
 	{
 		ProcessConstraintsCallback(a_proxyCtrl, a_proxy, a_manifold, a_input);
 
-		for (int i = 0; i < a_manifold.size(); i++) {
+		for (std::int32_t i = 0; i < a_manifold.size(); i++) {
 			const RE::hkpRootCdPoint& rootPoint = a_manifold[i];
 			const RE::hkpCollidable* rootCollidableB = rootPoint.rootCollidableB;
-			uint8_t charCollisionFilterInfo = rootCollidableB->broadPhaseHandle.collisionFilterInfo & 0x7F;
-			if (charCollisionFilterInfo == 0x1E &&
-				static_cast<RE::hkpWorldObject::BroadPhaseType>(rootCollidableB->broadPhaseHandle.type) == RE::hkpWorldObject::BroadPhaseType::kEntity) {
-				auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
-				auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
-				if (attacker && ShouldPreventAttackPushing(attacker, GetActor(a_proxyCtrl))) {
-					auto attackerCharCtrl = attacker->GetCharController();
-					auto rigidBodyChar = attackerCharCtrl ? skyrim_cast<RE::bhkCharRigidBodyController*>(attackerCharCtrl) : nullptr;
-					if (rigidBodyChar) {
-						a_input.constraints[i].velocity = { 0 };
-						WriteLocker(charCtrlPlaneLock);
 
+			if (!rootCollidableB || rootCollidableB->GetCollisionLayer() != RE::COL_LAYER::kCharController)
+				continue;
+
+			if (static_cast<RE::hkpWorldObject::BroadPhaseType>(rootCollidableB->broadPhaseHandle.type) != RE::hkpWorldObject::BroadPhaseType::kEntity)
+				continue;
+
+			const auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
+			const auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
+
+			if (ShouldPreventAttackPushing(attacker, GetActor(a_proxyCtrl))) {
+				auto attackerCharCtrl = attacker->GetCharController();
+				auto rigidBodyChar = attackerCharCtrl ? skyrim_cast<RE::bhkCharRigidBodyController*>(attackerCharCtrl) : nullptr;
+
+				if (rigidBodyChar) {
+					a_input.constraints[i].velocity = { 0 };
+
+					{
+						WriteLocker lock(charCtrlPlaneLock);
 						charCtrlPlaneMap.emplace(rigidBodyChar, a_input.constraints[i].plane);
 					}
 				}
@@ -210,16 +221,20 @@ namespace AMF
 		UpdateForAnimationAttack(a_charCtrl);
 
 		auto rigidCharCtrl = a_charCtrl ? skyrim_cast<RE::bhkCharRigidBodyController*>(a_charCtrl) : nullptr;
-		if (rigidCharCtrl) {
-			WriteLocker(charCtrlPlaneLock);
+		if (!rigidCharCtrl)
+			return;
+
+		{
+			WriteLocker lock(charCtrlPlaneLock);
 			auto it = charCtrlPlaneMap.find(rigidCharCtrl);
 			if (it != charCtrlPlaneMap.end()) {
-				auto normal = it->second;
+				const auto& normal = it->second;
 				RE::hkVector4 currentVelocity;
 				rigidCharCtrl->GetLinearVelocityImpl(currentVelocity);
-				auto velDotNormal = currentVelocity.Dot3(normal);
-				if (velDotNormal > 0.f) {
-					auto counterVel = normal * (-velDotNormal);
+
+				const auto velDotNormal = currentVelocity.Dot3(normal);
+				if (velDotNormal > 0.0f) {
+					const auto counterVel = normal * (-velDotNormal);
 					currentVelocity = currentVelocity + counterVel;
 					rigidCharCtrl->SetLinearVelocityImpl(currentVelocity);
 				}
@@ -231,10 +246,12 @@ namespace AMF
 
 	void PushCharacterHandler::RigidBodyPushProxyHandler::Hook_DeleteThis(RE::bhkCharRigidBodyController* a_charCtrl)
 	{
-		WriteLocker(charCtrlPlaneLock);
-		auto it = charCtrlPlaneMap.find(a_charCtrl);
-		if (it != charCtrlPlaneMap.end()) {
-			charCtrlPlaneMap.erase(it);
+		{
+			WriteLocker lock(charCtrlPlaneLock);
+			auto it = charCtrlPlaneMap.find(a_charCtrl);
+			if (it != charCtrlPlaneMap.end()) {
+				charCtrlPlaneMap.erase(it);
+			}
 		}
 
 		DeleteThis(a_charCtrl);
@@ -256,18 +273,25 @@ namespace AMF
 
 	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::AMFContactListener::ContactPointCallback(const RE::hkpContactPointEvent& a_event)
 	{
-		auto attacker = GetActor(a_event.bodies[0]);
-		if (attacker) {
-			auto target = GetActor(a_event.bodies[1]);
-			if (target && ShouldPreventAttackPushing(attacker, target) && a_event.contactMgr && a_event.bodies[0]->simulationIsland && a_event.bodies[1]->simulationIsland) {
-				a_event.bodies[1]->responseModifierFlags = 1;  //MASS_SCALING = 1
-				SetInvMassScalingForContact_Impl(a_event, a_event.bodies[1], { 0 });
-				if (ShouldPreventAttackPushing(target, attacker)) {
-					a_event.bodies[0]->responseModifierFlags = 1;  //MASS_SCALING = 1
-					SetInvMassScalingForContact_Impl(a_event, a_event.bodies[0], { 0 });
-				}
+		const auto prop = a_event.contactPointProperties;
+		if (!prop || prop->flags.any(RE::hkContactPointMaterial::Flag::kIsDisabled) || !a_event.contactMgr) {
+			return;
+		}
+
+		auto rigidBodyA = a_event.bodies[0];
+		auto rigidBodyB = a_event.bodies[1];
+
+		auto attacker = GetActor(rigidBodyA);
+		auto target = GetActor(rigidBodyB);
+
+		if (ShouldPreventAttackPushing(attacker, target) && rigidBodyA->simulationIsland && rigidBodyB->simulationIsland) {
+			rigidBodyB->responseModifierFlags |= 1;  //MASS_SCALING = 1
+			SetInvMassScalingForContact_Impl(a_event, rigidBodyB, { 0 });
+
+			if (ShouldPreventAttackPushing(target, attacker)) {
+				rigidBodyA->responseModifierFlags |= 1;
+				SetInvMassScalingForContact_Impl(a_event, rigidBodyA, { 0 });
 			}
 		}
 	}
-
 }

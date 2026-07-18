@@ -1,28 +1,15 @@
 #pragma once
-#include "DKUtil/Config.hpp"
-#include "DKUtil/Utility.hpp"
 
 namespace AMF
 {
-	using namespace DKUtil::Alias;
-
-	class AMFSettings : public DKUtil::model::Singleton<AMFSettings>
+	class AMFSettings : public REX::Singleton<AMFSettings>
 	{
-		friend DKUtil::model::Singleton<AMFSettings>;
-	private:
-		AMFSettings();
-
-		template <class T>
-		static void PrintSettingValue(const T& a_setting)
-		{
-			INFO("Setting:\"{}\" is {}"sv, a_setting.get_key(), a_setting.get_data());
-		}
-
 	public:
-		Boolean enablePitchTranslationFix{ "EnablePitchTranslationFix", "Fix" };
+		void LoadSettings();
 
-		Boolean disablePlayerRotationMagnetism{ "DisablePlayerRotationMagnetism", "Tweak" };
-		Boolean disablePlayerMovementMagnetism{ "DisablePlayerMovementMagnetism", "Tweak" };
-		Boolean disableNpcMovementMagnetism{ "DisableNpcMovementMagnetism", "Tweak" };
+		bool enablePitchTranslationFix{ true };
+		bool disablePlayerRotationMagnetism{ true };
+		bool disablePlayerMovementMagnetism{ true };
+		bool disableNpcMovementMagnetism{ true };
 	};
 }

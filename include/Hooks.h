@@ -1,9 +1,4 @@
 #pragma once
-#include "DKUtil/Config.hpp"
-#include "DKUtil/Utility.hpp"
-#include "RE/bhkCharRigidBodyController.h"
-#include "RE/bhkCharacterRigidBody.h"
-#include "RE/hkpCharacterRigidBodyListener.h"
 
 namespace AMF
 {
@@ -14,7 +9,7 @@ namespace AMF
 
 		struct Hook : Xbyak::CodeGenerator
 		{
-			Hook()
+			Hook(std::uintptr_t func, std::uintptr_t ret)
 			{
 				Xbyak::Label hookLabel;
 				Xbyak::Label retnLabel;
@@ -24,24 +19,29 @@ namespace AMF
 
 				jmp(ptr[rip + retnLabel]);
 
-				L(hookLabel), dq(reinterpret_cast<std::uintptr_t>(&Hook_ConvertMoveDirToTranslation));
-				L(retnLabel), dq(hookedAddress + 5);
+				L(hookLabel);
+				dq(func);
+
+				L(retnLabel);
+				dq(ret);
 			}
 		};
 
 	public:
 		static void InstallHook()
 		{
-			REL::Relocation<std::uintptr_t> Base{ REL::VariantID(36365, 37356, 0x5E0E20) };  //1.5.97 1405D87F0 - 1.6.640 14060FAE0
-			hookedAddress = Base.address() + REL::Relocate(0x365, 0x3FE, 0x3B5);
-			ConvertMoveDirToTranslation = WriteBranchTrampoline<5>(hookedAddress, Hook());
-			INFO("{} Done!", __FUNCTION__);
+			REL::Relocation<std::uintptr_t> target{ REL::VariantID(36365, 37356, 0x5E0E20), REL::Relocate(0x365, 0x3FE, 0x3B5) };  //1.5.97 1405D87F0 - 1.6.640 14060FAE0
+			auto call = Hook(stl::unrestricted_cast<std::uintptr_t>(Hook_ConvertMoveDirToTranslation), target.address() + 5);
+
+			auto& trampoline = SKSE::GetTrampoline();
+			ConvertMoveDirToTranslation = trampoline.write_branch<5>(target.address(), trampoline.allocate(call));
+
+			SKSE::log::info("{} Done!", __FUNCTION__);
 		}
 
 	private:
-		static inline std::uintptr_t hookedAddress;
-		static void Hook_ConvertMoveDirToTranslation(RE::NiPoint3& a_movementDirection, RE::NiPoint3& a_translationData, RE::Actor* a_actor);
-		static inline REL::Relocation<void (*)(RE::NiPoint3& a_movementDirection, RE::NiPoint3& a_translationData)> ConvertMoveDirToTranslation;
+		static void Hook_ConvertMoveDirToTranslation(const RE::NiPoint3& a_angle, RE::NiPoint3& a_outDirection, RE::Actor* a_actor);
+		static inline REL::Relocation<void (*)(const RE::NiPoint3& a_angle, RE::NiPoint3& a_outDirection)> ConvertMoveDirToTranslation;
 
 		FixPitchTransHandler() = delete;
 		~FixPitchTransHandler() = delete;
@@ -60,10 +60,10 @@ namespace AMF
 			{
 				auto& trampoline = SKSE::GetTrampoline();
 
-				REL::Relocation<std::uintptr_t> Base{ REL::VariantID(39379, 40451, 0x6BFF10) };  //1.5.97 14069f730
-				func = trampoline.write_call<5>(Base.address() + 0x42, UpdateMagnetism);
+				REL::Relocation<std::uintptr_t> target{ REL::VariantID(39379, 40451, 0x6BFF10), 0x42 };  //1.5.97 14069f730
+				func = trampoline.write_call<5>(target.address(), UpdateMagnetism);
 
-				INFO("{} Done!", __FUNCTION__);
+				SKSE::log::info("{} Done!", __FUNCTION__);
 			}
 
 		private:
@@ -79,15 +79,14 @@ namespace AMF
 			{
 				auto& trampoline = SKSE::GetTrampoline();
 
-				REL::Relocation<std::uintptr_t> Base{ REL::VariantID(36357, 37348, 0x5DF5E0) };  //1.5.97 1405D6FB0
-				func = trampoline.write_call<5>(Base.address() + REL::Relocate(0x222, 0x1FB), Hook_IsStartingMeleeAttack);
+				REL::Relocation<std::uintptr_t> target{ REL::VariantID(36357, 37348, 0x5DF5E0), REL::Relocate(0x222, 0x1FB) };  //1.5.97 1405D6FB0
+				func = trampoline.write_call<5>(target.address(), Hook_IsStartingMeleeAttack);
 
-				INFO("{} Done!", __FUNCTION__);
+				SKSE::log::info("{} Done!", __FUNCTION__);
 			}
 
 		private:
 			static bool Hook_IsStartingMeleeAttack(RE::Actor* a_actor);
-
 			static inline REL::Relocation<decltype(Hook_IsStartingMeleeAttack)> func;
 		};
 
@@ -114,10 +113,10 @@ namespace AMF
 			{
 				auto& trampoline = SKSE::GetTrampoline();
 
-				REL::Relocation<std::uintptr_t> Base{ REL::VariantID(77248, 79134, 0xE44BA0) };  //1.5.97 140DEFBA0
-				func = trampoline.write_call<5>(Base.address() + REL::Relocate(0x3F, 0x37), Hook_PushTargetCharacter);
+				REL::Relocation<std::uintptr_t> target{ REL::VariantID(77248, 79134, 0xE44BA0), REL::Relocate(0x3F, 0x37) };  //1.5.97 140DEFBA0
+				func = trampoline.write_call<5>(target.address(), Hook_PushTargetCharacter);
 
-				INFO("{} Done!", __FUNCTION__);
+				SKSE::log::info("{} Done!", __FUNCTION__);
 			}
 
 		private:
@@ -133,10 +132,10 @@ namespace AMF
 			{
 				auto& trampoline = SKSE::GetTrampoline();
 
-				REL::Relocation<std::uintptr_t> Base{ REL::VariantID(77244, 79130, 0xE44090) };  //1.5.97 140DEF090
-				func = trampoline.write_call<5>(Base.address() + REL::Relocate(0x3CD, 0x3B1), Hook_PushTargetCharacter);
+				REL::Relocation<std::uintptr_t> target{ REL::VariantID(77244, 79130, 0xE44090), REL::Relocate(0x3CD, 0x3B1) };  //1.5.97 140DEF090
+				func = trampoline.write_call<5>(target.address(), Hook_PushTargetCharacter);
 
-				INFO("{} Done!", __FUNCTION__);
+				SKSE::log::info("{} Done!", __FUNCTION__);
 			}
 
 		private:
@@ -161,12 +160,12 @@ namespace AMF
 				ProcessConstraintsCallback = Vtbl_ProxyCtrl.write_vfunc(0x1, &Hook_ProcessConstraintsCallback);
 
 				auto& trampoline = SKSE::GetTrampoline();
-				REL::Relocation<std::uintptr_t> Base{ REL::VariantID(77321, 79201, 0xE47B30) };  //1.5.97 140DF2B30
-				UpdateForAnimationAttack = trampoline.write_call<5>(Base.address() + REL::Relocate(0x159, 0x147), Hook_UpdateForAnimationAttack);
+				REL::Relocation<std::uintptr_t> target{ REL::VariantID(77321, 79201, 0xE47B30), REL::Relocate(0x159, 0x147) };  //1.5.97 140DF2B30
+				UpdateForAnimationAttack = trampoline.write_call<5>(target.address(), Hook_UpdateForAnimationAttack);
 
 				REL::Relocation<std::uintptr_t> Vtbl_RigidBodyCtrl{ RE::VTABLE_bhkCharRigidBodyController[0] };
 				DeleteThis = Vtbl_RigidBodyCtrl.write_vfunc(0x1, &Hook_DeleteThis);
-				INFO("{} Done!", __FUNCTION__);
+				SKSE::log::info("{} Done!", __FUNCTION__);
 			}
 
 		private:
@@ -184,28 +183,22 @@ namespace AMF
 		class RigidBodyPushRigidBodyHandler
 		{
 		public:
-			class AMFContactListener : public RE::hkpContactListener, public DKUtil::model::Singleton<AMFContactListener>
+			class AMFContactListener : public RE::hkpContactListener, public REX::Singleton<AMFContactListener>
 			{
 			public:
-				friend DKUtil::model::Singleton<AMFContactListener>;
-
 				void ContactPointCallback(const RE::hkpContactPointEvent& a_event) override;
-
-			private:
-				AMFContactListener() = default;
-				~AMFContactListener() = default;
 			};
 
 			static void InstallHook()
 			{
 				auto& trampoline = SKSE::GetTrampoline();
-				REL::Relocation<std::uintptr_t> Base1{ REL::VariantID(77306, 79186, 0xE466A0) };  //1.5.97 140DF16A0
-				PushTargetCharacter = trampoline.write_call<5>(Base1.address() + REL::Relocate(0x29F, 0x2A9), Hook_PushTargetCharacter);
+				REL::Relocation<std::uintptr_t> target1{ REL::VariantID(77306, 79186, 0xE466A0), REL::Relocate(0x29F, 0x2A9) };  //1.5.97 140DF16A0
+				PushTargetCharacter = trampoline.write_call<5>(target1.address(), Hook_PushTargetCharacter);
 
-				REL::Relocation<std::uintptr_t> Base2{ REL::VariantID(18709, 19195, 0x282DA0) };  //1.5.97 140271780
-				_AddContactListener = trampoline.write_call<5>(Base2.address() + REL::Relocate(0x183, 0x186), Hook_AddContactListener);
+				REL::Relocation<std::uintptr_t> target2{ REL::VariantID(18709, 19195, 0x282DA0), REL::Relocate(0x183, 0x186) };  //1.5.97 140271780
+				_AddContactListener = trampoline.write_call<5>(target2.address(), Hook_AddContactListener);
 
-				INFO("{} Done!", __FUNCTION__);
+				SKSE::log::info("{} Done!", __FUNCTION__);
 			}
 
 		private:

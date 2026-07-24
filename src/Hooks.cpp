@@ -3,21 +3,12 @@
 
 namespace AMF
 {
-	inline bool IsMovementAnimationDriven_1405E3250(RE::Actor* a_actor)
+	static bool IsValidActor(RE::TESObjectREFR* a_actor)
 	{
-		using func_t = decltype(&IsMovementAnimationDriven_1405E3250);
-		static REL::Relocation<func_t> func{ REL::VariantID(36487, 37486, 0x5EB8F0) };
-		return func(a_actor);
+		return a_actor && a_actor->IsInitialized() && a_actor->Is3DLoaded();
 	}
 
-	inline RE::hkContactPoint* GetContactPoint_140A9ED70(RE::hkpSimpleConstraintContactMgr* a_mgr, uint16_t a_contactPointIds)
-	{
-		using func_t = decltype(&GetContactPoint_140A9ED70);
-		static REL::Relocation<func_t> func{ REL::VariantID(61252, 62142, 0xAD9770) };
-		return func(a_mgr, a_contactPointIds);
-	}
-
-	inline void SetInvMassScalingForContact_140AA8740(RE::hkpSimpleConstraintContactMgr* a_mgr, RE::hkpRigidBody* a_body, RE::hkpConstraintOwner& a_constraintOwner, const RE::hkVector4& a_factor)
+	static void SetInvMassScalingForContact_140AA8740(RE::hkpSimpleConstraintContactMgr* a_mgr, RE::hkpRigidBody* a_body, RE::hkpConstraintOwner& a_constraintOwner, const RE::hkVector4& a_factor)
 	{
 		using func_t = decltype(&SetInvMassScalingForContact_140AA8740);
 		static REL::Relocation<func_t> func{ REL::VariantID(61388, 62282, 0xAE3140) };
@@ -25,7 +16,7 @@ namespace AMF
 	}
 
 	// implementation of hkpAddModifierUtil::setInvMassScalingForContact not included in Skyrim exe file
-	inline void SetInvMassScalingForContact_Impl(const RE::hkpContactPointEvent& a_event, RE::hkpRigidBody* a_rigidBody, const RE::hkVector4& a_factor)
+	static void SetInvMassScalingForContact_Impl(const RE::hkpContactPointEvent& a_event, RE::hkpRigidBody* a_rigidBody, const RE::hkVector4& a_factor)
 	{
 		auto island = a_event.bodies[0]->simulationIsland;
 		if (island->storageIndex == 0xFFFF) {  // hkpSimulationIsland::isFixed
@@ -50,7 +41,7 @@ namespace AMF
 
 	bool FixPitchTransHandler::RevertPitchRotation(RE::Actor* a_actor, RE::NiPoint3& a_translation)
 	{
-		if (!a_actor)
+		if (!IsValidActor(a_actor) || !AMFSettings::GetSingleton()->enablePitchTranslationFix || a_actor->IsPlayerRef())
 			return false;
 
 		const auto actorState = a_actor->AsActorState();
@@ -62,7 +53,7 @@ namespace AMF
 			return false;
 		}
 
-		if (IsMovementAnimationDriven_1405E3250(a_actor) && (a_actor->IsAnimationDriven() || a_actor->IsRotationAllowed())) {
+		if (a_actor->IsMovementAnimationDriven() && (a_actor->IsAnimationDriven() || a_actor->IsRotationAllowed())) {
 			auto pitchAngle = a_actor->data.angle.x;
 			if (std::abs(pitchAngle) > 1.57079638f) {
 				return false;  //Gimbal Lock Occured
@@ -82,14 +73,12 @@ namespace AMF
 	void FixPitchTransHandler::Hook_ConvertMoveDirToTranslation(const RE::NiPoint3& a_angle, RE::NiPoint3& a_outDirection, RE::Actor* a_actor)
 	{
 		ConvertMoveDirToTranslation(a_angle, a_outDirection);
-		if (a_actor && !a_actor->IsPlayerRef() && AMFSettings::GetSingleton()->enablePitchTranslationFix) {
-			RevertPitchRotation(a_actor, a_outDirection);
-		}
+		RevertPitchRotation(a_actor, a_outDirection);
 	}
 
 	bool AttackMagnetismHandler::ShouldDisableMovementMagnetism(RE::Actor* a_actor)
 	{
-		if (!a_actor)
+		if (!IsValidActor(a_actor))
 			return false;
 
 		auto settings = AMFSettings::GetSingleton();
@@ -127,8 +116,7 @@ namespace AMF
 		const auto pusherHandle = a_pusher->GetActorRuntimeData().currentCombatTarget;
 		auto combatTarg = pusherHandle ? pusherHandle.get() : nullptr;
 
-		if (combatTarg && AttackMagnetismHandler::ShouldDisableMovementMagnetism(a_pusher) && a_pusher->IsAttacking() &&
-			IsMovementAnimationDriven_1405E3250(a_pusher)) {
+		if (combatTarg && AttackMagnetismHandler::ShouldDisableMovementMagnetism(a_pusher) && a_pusher->IsAttacking() && a_pusher->IsMovementAnimationDriven()) {
 			if (a_target == combatTarg.get() || a_target->GetMountedBy(combatTarg)) {
 				return true;
 			}
@@ -164,7 +152,10 @@ namespace AMF
 			return nullptr;
 
 		auto objRef = a_rigidBody ? a_rigidBody->GetUserData() : nullptr;
-		return objRef ? objRef->As<RE::Actor>() : nullptr;
+		if (!IsValidActor(objRef))
+			return nullptr;
+
+		return objRef->As<RE::Actor>();
 	}
 
 	void PushCharacterHandler::ProxyPushProxyHandler::Hook_PushTargetCharacter(RE::bhkCharacterController* a_pusher, RE::bhkCharacterController* a_target, RE::hkContactPoint* a_contactPoint)

@@ -3,7 +3,12 @@
 
 namespace AMF
 {
-	static bool IsValidActor(RE::TESObjectREFR* a_actor)
+	static bool IsValidActor(const RE::TESObjectREFRPtr& a_actor)
+	{
+		return a_actor && a_actor->IsInitialized() && a_actor->Is3DLoaded();
+	}
+
+	static bool IsValidActor(const RE::TESObjectREFR* const a_actor)
 	{
 		return a_actor && a_actor->IsInitialized() && a_actor->Is3DLoaded();
 	}
@@ -78,16 +83,15 @@ namespace AMF
 
 	bool AttackMagnetismHandler::ShouldDisableMovementMagnetism(RE::Actor* a_actor)
 	{
-		if (!IsValidActor(a_actor))
-			return false;
-
 		auto settings = AMFSettings::GetSingleton();
 		bool isDisableInSetting = a_actor->IsPlayerRef() ? settings->disablePlayerMovementMagnetism : settings->disableNpcMovementMagnetism;
 		if (isDisableInSetting) {
-			bool bForceMoveMagnetism = a_actor->GetGraphVariableBool("AMF_bForceMoveMagnetism", bForceMoveMagnetism) && bForceMoveMagnetism;
+			bool bForceMoveMagnetism = false;
+			bForceMoveMagnetism = a_actor->GetGraphVariableBool("AMF_bForceMoveMagnetism", bForceMoveMagnetism) && bForceMoveMagnetism;
 			return !bForceMoveMagnetism;
 		} else {
-			bool bForbidMoveMagnetism = a_actor->GetGraphVariableBool("AMF_bForbidMoveMagnetism", bForbidMoveMagnetism) && bForbidMoveMagnetism;
+			bool bForbidMoveMagnetism = false;
+			bForbidMoveMagnetism = a_actor->GetGraphVariableBool("AMF_bForbidMoveMagnetism", bForbidMoveMagnetism) && bForbidMoveMagnetism;
 			return bForbidMoveMagnetism;
 		}
 	}
@@ -101,7 +105,7 @@ namespace AMF
 
 	bool AttackMagnetismHandler::MovementMagnetismHook::Hook_IsStartingMeleeAttack(RE::Actor* a_actor)
 	{
-		if (ShouldDisableMovementMagnetism(a_actor)) {
+		if (IsValidActor(a_actor) && ShouldDisableMovementMagnetism(a_actor)) {
 			return false;
 		}
 
@@ -139,19 +143,15 @@ namespace AMF
 
 	RE::Actor* PushCharacterHandler::GetActor(RE::bhkCharacterController* a_charCtrl)
 	{
-		return a_charCtrl ? GetActor(a_charCtrl->GetRigidBody()) : nullptr;
-	}
-
-	RE::Actor* PushCharacterHandler::GetActor(RE::hkpWorldObject* a_rigidBody)
-	{
-		if (!a_rigidBody)
+		auto rigidBody = a_charCtrl ? a_charCtrl->GetRigidBody() : nullptr;
+		if (!rigidBody)
 			return nullptr;
 
-		const auto charCollisionFilterInfo = a_rigidBody->collidable.GetCollisionLayer();
+		const auto charCollisionFilterInfo = rigidBody->collidable.GetCollisionLayer();
 		if (charCollisionFilterInfo != RE::COL_LAYER::kCharController)
 			return nullptr;
 
-		auto objRef = a_rigidBody ? a_rigidBody->GetUserData() : nullptr;
+		RE::TESObjectREFRPtr objRef(rigidBody ? rigidBody->GetUserData() : nullptr);
 		if (!IsValidActor(objRef))
 			return nullptr;
 
@@ -189,7 +189,7 @@ namespace AMF
 				continue;
 
 			const auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
-			const auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
+			const auto attacker = IsValidActor(attackerRef) ? attackerRef->As<RE::Actor>() : nullptr;
 
 			if (ShouldPreventAttackPushing(attacker, GetActor(a_proxyCtrl))) {
 				auto attackerCharCtrl = attacker->GetCharController();
@@ -271,9 +271,15 @@ namespace AMF
 
 		auto rigidBodyA = a_event.bodies[0];
 		auto rigidBodyB = a_event.bodies[1];
+		if (!rigidBodyA || !rigidBodyB) {
+			return;
+		}
 
-		auto attacker = GetActor(rigidBodyA);
-		auto target = GetActor(rigidBodyB);
+		RE::TESObjectREFRPtr APtr(rigidBodyA ? rigidBodyA->GetUserData() : nullptr);
+		RE::TESObjectREFRPtr BPtr(rigidBodyB ? rigidBodyB->GetUserData() : nullptr);
+
+		auto attacker = IsValidActor(APtr) ? APtr->As<RE::Actor>() : nullptr;
+		auto target = IsValidActor(BPtr) ? BPtr->As<RE::Actor>() : nullptr;
 
 		if (ShouldPreventAttackPushing(attacker, target) && rigidBodyA->simulationIsland && rigidBodyB->simulationIsland) {
 			rigidBodyB->responseModifierFlags |= 1;  //MASS_SCALING = 1

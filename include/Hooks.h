@@ -103,7 +103,6 @@ namespace AMF
 		static bool ShouldPreventAttackPushing(RE::bhkCharacterController* a_pusher, RE::bhkCharacterController* a_target);
 
 		static RE::Actor* GetActor(RE::bhkCharacterController* a_charCtrl);
-		static RE::Actor* GetActor(RE::hkpWorldObject* a_rigidBody);
 
 		// Prevent a proxy character controller pushing another proxy controller when performing animation dirven attacking.
 		class ProxyPushProxyHandler

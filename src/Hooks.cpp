@@ -3,16 +3,6 @@
 
 namespace AMF
 {
-	static bool IsValidActor(const RE::TESObjectREFRPtr& a_actor)
-	{
-		return a_actor && a_actor->IsInitialized() && a_actor->Is3DLoaded();
-	}
-
-	static bool IsValidActor(const RE::TESObjectREFR* const a_actor)
-	{
-		return a_actor && a_actor->IsInitialized() && a_actor->Is3DLoaded();
-	}
-
 	static void SetInvMassScalingForContact_140AA8740(RE::hkpSimpleConstraintContactMgr* a_mgr, RE::hkpRigidBody* a_body, RE::hkpConstraintOwner& a_constraintOwner, const RE::hkVector4& a_factor)
 	{
 		using func_t = decltype(&SetInvMassScalingForContact_140AA8740);
@@ -46,7 +36,7 @@ namespace AMF
 
 	bool FixPitchTransHandler::RevertPitchRotation(RE::Actor* a_actor, RE::NiPoint3& a_translation)
 	{
-		if (!IsValidActor(a_actor) || !AMFSettings::GetSingleton()->enablePitchTranslationFix || a_actor->IsPlayerRef())
+		if (!AMFSettings::GetSingleton()->enablePitchTranslationFix || a_actor->IsPlayerRef())
 			return false;
 
 		const auto actorState = a_actor->AsActorState();
@@ -105,7 +95,7 @@ namespace AMF
 
 	bool AttackMagnetismHandler::MovementMagnetismHook::Hook_IsStartingMeleeAttack(RE::Actor* a_actor)
 	{
-		if (IsValidActor(a_actor) && ShouldDisableMovementMagnetism(a_actor)) {
+		if (ShouldDisableMovementMagnetism(a_actor)) {
 			return false;
 		}
 
@@ -152,7 +142,7 @@ namespace AMF
 			return nullptr;
 
 		RE::TESObjectREFRPtr objRef(rigidBody ? rigidBody->GetUserData() : nullptr);
-		if (!IsValidActor(objRef))
+		if (!objRef)
 			return nullptr;
 
 		return objRef->As<RE::Actor>();
@@ -189,7 +179,7 @@ namespace AMF
 				continue;
 
 			const auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
-			const auto attacker = IsValidActor(attackerRef) ? attackerRef->As<RE::Actor>() : nullptr;
+			const auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
 
 			if (ShouldPreventAttackPushing(attacker, GetActor(a_proxyCtrl))) {
 				auto attackerCharCtrl = attacker->GetCharController();
@@ -256,39 +246,31 @@ namespace AMF
 		PushTargetCharacter(a_pusher, a_target, a_contactPoint);
 	}
 
-	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::Hook_AddContactListener(RE::bhkWorld* a_world, RE::hkpContactListener* a_listener)
-	{
-		_AddContactListener(a_world, AMFContactListener::GetSingleton());
-		_AddContactListener(a_world, a_listener);
-	}
-
-	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::AMFContactListener::ContactPointCallback(const RE::hkpContactPointEvent& a_event)
+	void PushCharacterHandler::RigidBodyPushRigidBodyHandler::Hook_ContactPointCallback(RE::FOCollisionListener* a_listener, const RE::hkpContactPointEvent& a_event)
 	{
 		const auto prop = a_event.contactPointProperties;
-		if (!prop || prop->flags.any(RE::hkContactPointMaterial::Flag::kIsDisabled) || !a_event.contactMgr) {
-			return;
-		}
+		if (prop && !prop->flags.any(RE::hkContactPointMaterial::Flag::kIsDisabled) && a_event.contactMgr) {
+			auto rigidBodyA = a_event.bodies[0];
+			auto rigidBodyB = a_event.bodies[1];
+			if (rigidBodyA && rigidBodyB) {
+				RE::TESObjectREFRPtr APtr(rigidBodyA->GetUserData());
+				RE::TESObjectREFRPtr BPtr(rigidBodyB->GetUserData());
 
-		auto rigidBodyA = a_event.bodies[0];
-		auto rigidBodyB = a_event.bodies[1];
-		if (!rigidBodyA || !rigidBodyB) {
-			return;
-		}
+				auto attacker = (APtr && APtr->IsActor()) ? APtr->As<RE::Actor>() : nullptr;
+				auto target = (BPtr && BPtr->IsActor()) ? BPtr->As<RE::Actor>() : nullptr;
 
-		RE::TESObjectREFRPtr APtr(rigidBodyA ? rigidBodyA->GetUserData() : nullptr);
-		RE::TESObjectREFRPtr BPtr(rigidBodyB ? rigidBodyB->GetUserData() : nullptr);
+				if (ShouldPreventAttackPushing(attacker, target) && rigidBodyA->simulationIsland && rigidBodyB->simulationIsland) {
+					rigidBodyB->responseModifierFlags |= 1;  //MASS_SCALING = 1
+					SetInvMassScalingForContact_Impl(a_event, rigidBodyB, { 0 });
 
-		auto attacker = IsValidActor(APtr) ? APtr->As<RE::Actor>() : nullptr;
-		auto target = IsValidActor(BPtr) ? BPtr->As<RE::Actor>() : nullptr;
-
-		if (ShouldPreventAttackPushing(attacker, target) && rigidBodyA->simulationIsland && rigidBodyB->simulationIsland) {
-			rigidBodyB->responseModifierFlags |= 1;  //MASS_SCALING = 1
-			SetInvMassScalingForContact_Impl(a_event, rigidBodyB, { 0 });
-
-			if (ShouldPreventAttackPushing(target, attacker)) {
-				rigidBodyA->responseModifierFlags |= 1;
-				SetInvMassScalingForContact_Impl(a_event, rigidBodyA, { 0 });
+					if (ShouldPreventAttackPushing(target, attacker)) {
+						rigidBodyA->responseModifierFlags |= 1;
+						SetInvMassScalingForContact_Impl(a_event, rigidBodyA, { 0 });
+					}
+				}
 			}
 		}
+
+		ContactPointCallback(a_listener, a_event);
 	}
 }

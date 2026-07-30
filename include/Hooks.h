@@ -182,20 +182,14 @@ namespace AMF
 		class RigidBodyPushRigidBodyHandler
 		{
 		public:
-			class AMFContactListener : public RE::hkpContactListener, public REX::Singleton<AMFContactListener>
-			{
-			public:
-				void ContactPointCallback(const RE::hkpContactPointEvent& a_event) override;
-			};
-
 			static void InstallHook()
 			{
 				auto& trampoline = SKSE::GetTrampoline();
 				REL::Relocation<std::uintptr_t> target1{ REL::VariantID(77306, 79186, 0xE466A0), REL::Relocate(0x29F, 0x2A9) };  //1.5.97 140DF16A0
 				PushTargetCharacter = trampoline.write_call<5>(target1.address(), Hook_PushTargetCharacter);
 
-				REL::Relocation<std::uintptr_t> target2{ REL::VariantID(18709, 19195, 0x282DA0), REL::Relocate(0x183, 0x186) };  //1.5.97 140271780
-				_AddContactListener = trampoline.write_call<5>(target2.address(), Hook_AddContactListener);
+				REL::Relocation<std::uintptr_t> Vtbl{ RE::VTABLE_FOCollisionListener[0] };
+				ContactPointCallback = Vtbl.write_vfunc(0x0, &Hook_ContactPointCallback);
 
 				SKSE::log::info("{} Done!", __FUNCTION__);
 			}
@@ -204,8 +198,8 @@ namespace AMF
 			static void Hook_PushTargetCharacter(RE::bhkCharacterController* a_pusher, RE::bhkCharacterController* a_target, RE::hkContactPoint* a_contactPoint);
 			static inline REL::Relocation<decltype(Hook_PushTargetCharacter)> PushTargetCharacter;
 
-			static void Hook_AddContactListener(RE::bhkWorld* a_world, RE::hkpContactListener* a_listener);
-			static inline REL::Relocation<decltype(Hook_AddContactListener)> _AddContactListener;
+			static void Hook_ContactPointCallback(RE::FOCollisionListener* a_listener, const RE::hkpContactPointEvent&);
+			static inline REL::Relocation<decltype(&RE::FOCollisionListener::ContactPointCallback)> ContactPointCallback;
 		};
 
 	private:

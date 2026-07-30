@@ -46,7 +46,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse)
 
 	AMF::AMFSettings::GetSingleton()->LoadSettings();
 
-	SKSE::AllocTrampoline(145);
+	SKSE::AllocTrampoline(131);
 
 	AMF::FixPitchTransHandler::InstallHook();
 

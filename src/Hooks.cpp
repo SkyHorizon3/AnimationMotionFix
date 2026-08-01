@@ -3,6 +3,11 @@
 
 namespace AMF
 {
+	static bool IsValidActor(const RE::TESObjectREFRPtr& actor)
+	{
+		return actor && actor->IsActor() && actor->IsInitialized() && actor->Is3DLoaded();
+	}
+
 	static void SetInvMassScalingForContact_140AA8740(RE::hkpSimpleConstraintContactMgr* a_mgr, RE::hkpRigidBody* a_body, RE::hkpConstraintOwner& a_constraintOwner, const RE::hkVector4& a_factor)
 	{
 		using func_t = decltype(&SetInvMassScalingForContact_140AA8740);
@@ -58,7 +63,6 @@ namespace AMF
 			auto nonPitchTranslationZ = a_translation.z - nonPitchTranslationY * std::sin(pitchAngle);
 			a_translation.y = nonPitchTranslationY;
 			a_translation.z = nonPitchTranslationZ;
-
 			return true;
 		}
 
@@ -74,8 +78,8 @@ namespace AMF
 	bool AttackMagnetismHandler::ShouldDisableMovementMagnetism(RE::Actor* a_actor)
 	{
 		auto settings = AMFSettings::GetSingleton();
-		bool isDisableInSetting = a_actor->IsPlayerRef() ? settings->disablePlayerMovementMagnetism : settings->disableNpcMovementMagnetism;
-		if (isDisableInSetting) {
+		bool enabled = a_actor->IsPlayerRef() ? settings->disablePlayerMovementMagnetism : settings->disableNpcMovementMagnetism;
+		if (enabled) {
 			bool bForceMoveMagnetism = false;
 			bForceMoveMagnetism = a_actor->GetGraphVariableBool("AMF_bForceMoveMagnetism", bForceMoveMagnetism) && bForceMoveMagnetism;
 			return !bForceMoveMagnetism;
@@ -123,15 +127,15 @@ namespace AMF
 	{
 		auto pusherActor = GetActor(a_pusher);
 		if (pusherActor) {
-			auto targActor = GetActor(a_target);
-			if (targActor)
-				return ShouldPreventAttackPushing(pusherActor, targActor);
+			auto targetActor = GetActor(a_target);
+			if (targetActor)
+				return ShouldPreventAttackPushing(pusherActor->As<RE::Actor>(), targetActor->As<RE::Actor>());
 		}
 
 		return false;
 	}
 
-	RE::Actor* PushCharacterHandler::GetActor(RE::bhkCharacterController* a_charCtrl)
+	RE::TESObjectREFRPtr PushCharacterHandler::GetActor(RE::bhkCharacterController* a_charCtrl)
 	{
 		auto rigidBody = a_charCtrl ? a_charCtrl->GetRigidBody() : nullptr;
 		if (!rigidBody)
@@ -142,25 +146,26 @@ namespace AMF
 			return nullptr;
 
 		RE::TESObjectREFRPtr objRef(rigidBody ? rigidBody->GetUserData() : nullptr);
-		if (!objRef)
+		if (!IsValidActor(objRef))
 			return nullptr;
 
-		return objRef->As<RE::Actor>();
+		return objRef;
 	}
 
 	void PushCharacterHandler::ProxyPushProxyHandler::Hook_PushTargetCharacter(RE::bhkCharacterController* a_pusher, RE::bhkCharacterController* a_target, RE::hkContactPoint* a_contactPoint)
 	{
-		if (ShouldPreventAttackPushing(a_pusher, a_target))
+		if (ShouldPreventAttackPushing(a_pusher, a_target)) {
 			return;
+		}
 
 		func(a_pusher, a_target, a_contactPoint);
 	}
 
 	void PushCharacterHandler::ProxyPushRigidBodyHandler::Hook_PushTargetCharacter(RE::bhkCharacterController* a_pusher, RE::bhkCharacterController* a_target, RE::hkContactPoint* a_contactPoint)
 	{
-		if (ShouldPreventAttackPushing(a_pusher, a_target))
+		if (ShouldPreventAttackPushing(a_pusher, a_target)) {
 			return;
-
+		}
 		func(a_pusher, a_target, a_contactPoint);
 	}
 
@@ -178,10 +183,13 @@ namespace AMF
 			if (static_cast<RE::hkpWorldObject::BroadPhaseType>(rootCollidableB->broadPhaseHandle.type) != RE::hkpWorldObject::BroadPhaseType::kEntity)
 				continue;
 
-			const auto attackerRef = RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB);
-			const auto attacker = attackerRef ? attackerRef->As<RE::Actor>() : nullptr;
+			RE::TESObjectREFRPtr attackerRef(RE::TESHavokUtilities::FindCollidableRef(*rootCollidableB));
+			RE::TESObjectREFRPtr proxyRef = GetActor(a_proxyCtrl);
 
-			if (ShouldPreventAttackPushing(attacker, GetActor(a_proxyCtrl))) {
+			const auto attacker = IsValidActor(attackerRef) ? attackerRef->As<RE::Actor>() : nullptr;
+			const auto target = IsValidActor(proxyRef) ? proxyRef->As<RE::Actor>() : nullptr;
+
+			if (ShouldPreventAttackPushing(attacker, target)) {
 				auto attackerCharCtrl = attacker->GetCharController();
 				auto rigidBodyChar = attackerCharCtrl ? skyrim_cast<RE::bhkCharRigidBodyController*>(attackerCharCtrl) : nullptr;
 
@@ -250,16 +258,19 @@ namespace AMF
 	{
 		const auto prop = a_event.contactPointProperties;
 		if (prop && !prop->flags.any(RE::hkContactPointMaterial::Flag::kIsDisabled) && a_event.contactMgr) {
-			auto rigidBodyA = a_event.bodies[0];
-			auto rigidBodyB = a_event.bodies[1];
-			if (rigidBodyA && rigidBodyB) {
+			const auto rigidBodyA = a_event.bodies[0];
+			const auto rigidBodyB = a_event.bodies[1];
+			const auto islandA = rigidBodyA ? rigidBodyA->simulationIsland : nullptr;
+			const auto islandB = rigidBodyB ? rigidBodyB->simulationIsland : nullptr;
+
+			if (islandA && islandB) {
 				RE::TESObjectREFRPtr APtr(rigidBodyA->GetUserData());
 				RE::TESObjectREFRPtr BPtr(rigidBodyB->GetUserData());
 
-				auto attacker = (APtr && APtr->IsActor()) ? APtr->As<RE::Actor>() : nullptr;
-				auto target = (BPtr && BPtr->IsActor()) ? BPtr->As<RE::Actor>() : nullptr;
+				auto attacker = IsValidActor(APtr) ? APtr->As<RE::Actor>() : nullptr;
+				auto target = IsValidActor(BPtr) ? BPtr->As<RE::Actor>() : nullptr;
 
-				if (ShouldPreventAttackPushing(attacker, target) && rigidBodyA->simulationIsland && rigidBodyB->simulationIsland) {
+				if (ShouldPreventAttackPushing(attacker, target)) {
 					rigidBodyB->responseModifierFlags |= 1;  //MASS_SCALING = 1
 					SetInvMassScalingForContact_Impl(a_event, rigidBodyB, { 0 });
 
